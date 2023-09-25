@@ -16,12 +16,18 @@ while True:
         reader = csv.reader(file, delimiter=",")
         headers = next(reader)
         for row in reader:
-            value = {headers[i]: row[i] for i in range(len(headers))}
-            value["Duration"] = int(value["Duration"])
-            value["Start station number"] = int(value["Start station number"])
-            value["End station number"] = int(value["End station number"])
-      
+            value = {
+                "timestamp": row[0],
+                "id": row[1],
+                "type": row[2],
+                "latitude": float(row[3]),
+                "longitude": float(row[4]),
+                "speed_kmh": float(row[5]),
+                "acceleration": float(row[6]),
+                "distance": float(row[7]),
+                "odometer": float(row[8]),
+                "pos": float(row[9])
+            }
             value["ts"] = int(time.time())
-            producer.send(os.environ["KAFKA_TOPIC1"], value=value)
-            producer.send(os.environ["KAFKA_TOPIC2"], value=value)
+            producer.send(os.environ["KAFKA_TOPIC"], value=value)
             time.sleep(float(os.environ["KAFKA_INTERVAL"]))
