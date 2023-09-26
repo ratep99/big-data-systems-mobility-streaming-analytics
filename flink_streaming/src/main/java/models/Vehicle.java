@@ -21,23 +21,4 @@ public class Vehicle {
     private double distance;
     private double odometer;
     private double pos;
-    public Double getLatitudeRounded(int brojDecimala){
-        String formatString = "#.";
-        for(int i=0; i<brojDecimala; i++)
-        {
-            formatString+="#";
-        }
-
-        DecimalFormat df = new DecimalFormat(formatString);
-        return Double.parseDouble(df.format(latitude));
-    }
-    public Double getLongitudeRounded(int brojDecimala) {
-        String formatString = "#.";
-        for (int i = 0; i < brojDecimala; i++) {
-            formatString += "#";
-        }
-
-        DecimalFormat df = new DecimalFormat(formatString);
-        return Double.parseDouble(df.format(longitude));
-    }
 }

@@ -1,70 +1,52 @@
 package project;
 
 import models.Vehicle;
-import models.Vehicle;
 import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.java.tuple.Tuple1;
 import org.apache.flink.api.java.tuple.Tuple2;
 
 import java.util.*;
-public class TopNLocationsAggregate implements AggregateFunction<Vehicle, HashMap<String, Integer>, Tuple1<String>> {
+import java.util.stream.Collectors;
+
+public class TopNLocationsAggregate implements AggregateFunction<Vehicle, Map<String, Integer>, Tuple1<String>> {
     private final int n;
     public TopNLocationsAggregate(int n) {
         this.n = n;
     }
     @Override
-    public HashMap<String, Integer> createAccumulator()
-    {
-
+    public Map<String, Integer> createAccumulator() {
         return new HashMap<>();
     }
     @Override
-    public HashMap<String, Integer> add(Vehicle vehicle, HashMap<String, Integer> accumulator) {
-        if(vehicle.getLatitudeRounded(2) != null && vehicle.getLongitudeRounded(2) != null) {
-            String key = Double.toString(vehicle.getLatitudeRounded(2)) + " "
-                    + Double.toString(vehicle.getLongitudeRounded(2));
-            accumulator.merge(key, 1, Integer::sum);
-        }
+    public Map<String, Integer> add(Vehicle vehicle, Map<String, Integer> accumulator) {
+        double roundedLatitude = roundToTwoDecimals(vehicle.getLatitude());
+        double roundedLongitude = roundToTwoDecimals(vehicle.getLongitude());
+
+        String key = roundedLatitude + " " + roundedLongitude;
+        accumulator.merge(key, 1, Integer::sum);
         return accumulator;
     }
     @Override
-    public Tuple1<String> getResult(HashMap<String, Integer> accumulator) {
-        List<Tuple2<String, Integer>> topLocations = new ArrayList<>();
-        Comparator<Tuple2<String, Integer>> comparator = new Comparator<Tuple2<String, Integer>>() {
-            @Override
-            public int compare(Tuple2<String, Integer> t1, Tuple2<String, Integer> t2) {return t2.f1.compareTo(t1.f1);}
-        };
-        for (Map.Entry<String, Integer> entry : accumulator.entrySet()) {
-            if(entry.getKey() != null && entry.getValue() != null)
-                topLocations.add(new Tuple2<String, Integer>(entry.getKey(), entry.getValue()));
-        }
-        Collections.sort(topLocations, comparator);
-        if(n>=topLocations.size()){
-            String output = "[";
-            for(Tuple2<String,Integer> t : topLocations) {
-                output += "(" + t.f0 + ", " + Integer.toString(t.f1) + "), ";
-            }
-            output+= "]";
-            return new Tuple1<String>(output);
-        }
-        else{
-            List<Tuple2<String, Integer>> topLocations_copy = new ArrayList<>();
-            for(int i=0; i<n; i++) {
-                topLocations_copy.add(topLocations.get(i));
-            }
-            String output = "[";
-            for(Tuple2<String,Integer> t : topLocations_copy) {
-                output += "(" + t.f0 + ", " + Integer.toString(t.f1) + "), ";
-            }
-            output+= "]";
-            return new Tuple1<String>(output);
-        }
+    public Tuple1<String> getResult(Map<String, Integer> accumulator) {
+        List<Tuple2<String, Integer>> sortedLocations = accumulator.entrySet().stream()
+                .map(entry -> new Tuple2<>(entry.getKey(), entry.getValue()))
+                .sorted((e1, e2) -> e2.f1.compareTo(e1.f1))
+                .collect(Collectors.toList());
+
+        int size = Math.min(n, sortedLocations.size());
+        List<Tuple2<String, Integer>> topLocations = sortedLocations.subList(0, size);
+
+        String output = topLocations.toString();
+        return new Tuple1<>(output);
     }
     @Override
-    public HashMap<String, Integer> merge(HashMap<String, Integer> a, HashMap<String, Integer> b) {
-        for (Map.Entry<String, Integer> entry : b.entrySet()) {
-            a.merge(entry.getKey(), entry.getValue(), Integer::sum);
-        }
+    public Map<String, Integer> merge(Map<String, Integer> a, Map<String, Integer> b) {
+        b.forEach((key, value) -> a.merge(key, value, Integer::sum));
         return a;
+    }
+
+    private double roundToTwoDecimals(Double value) {
+        if (value == null) return 0.0;
+        return Math.round(value * 100.0) / 100.0;
     }
 }

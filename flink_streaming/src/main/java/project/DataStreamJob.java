@@ -39,81 +39,13 @@ import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
 import static java.lang.System.exit;
 
 public class DataStreamJob {
-    public static void main(String[] args) throws Exception {
-        Double lat1 = null, lat2 = null, long1 = null, long2 = null;
-        long1 = Double.parseDouble(args[0]);
-        long2 = Double.parseDouble(args[1]);
-        lat1 = Double.parseDouble(args[2]);
-        lat2 = Double.parseDouble(args[3]);
-        System.out.println("Parsed values: ");
-        System.out.println("long1: " + long1);
-        System.out.println("long2: " + long2);
-        System.out.println("lat1: " + lat1);
-        System.out.println("lat2: " + lat2);
-        if(lat1 == null || lat2 == null || long1 == null || long2 == null )
-        {
-            exit(1);
+
+    private static void validateInput(Double lat1, Double lat2, Double long1, Double long2) {
+        if (lat1 == null || lat2 == null || long1 == null || long2 == null) {
+            System.exit(1);
         }
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        String inputTopic = "vehicles_topic";
-        String server = "kafka:9092";
-
-        DataStream<String> dataStream = StreamConsumer(inputTopic, server, env);
-        DataStream<Vehicle> busStream = ConvertStreamFromJsonToBusType(dataStream);
-
-        Double finalLat1 = lat1;
-        Double finalLat2 = lat2;
-        Double finalLong1 = long1;
-        Double finalLong2 = long2;
-        SingleOutputStreamOperator windowedStream = busStream
-                .filter(new FilterFunction<Vehicle>() {
-                    @Override
-                    public boolean filter(Vehicle value) throws Exception {
-                        Double currLat = value.getLatitude();
-                        Double currLong = value.getLongitude();
-                        return currLong < finalLong1 && currLong > finalLong2 && currLat < finalLat1 && currLat > finalLat2;
-                    }
-                })
-                .keyBy(Vehicle::getId)
-                .window(SlidingProcessingTimeWindows.of(Time.seconds(10), Time.seconds(10)))
-                .aggregate(new AverageAggregate());
-
-        SingleOutputStreamOperator windowedStream2 = busStream
-                .keyBy(Vehicle::getId)
-                .window(SlidingProcessingTimeWindows.of(Time.seconds(30), Time.seconds(30)))
-                .aggregate(new TopNLocationsAggregate(3));
-
-        windowedStream2.print();
-        CassandraService cassandraService = new CassandraService();
-        cassandraService.sinkToDatabase15(windowedStream);
-        cassandraService.sinkToDatabase30(windowedStream2);
-
-        // Execute program, beginning computation.
-        env.execute("Flink Java API Skeleton");
     }
-    public static DataStream<String> StreamConsumer(String inputTopic, String server, StreamExecutionEnvironment environment) throws Exception {
-        FlinkKafkaConsumer<String> flinkKafkaConsumer = createStringConsumerForTopic(inputTopic, server);
-        DataStream<String> stringInputStream = environment.addSource(flinkKafkaConsumer);
-
-
-        return stringInputStream.map(new MapFunction<String, String>() {
-            private static final long serialVersionUID = -999736771747691234L;
-
-            @Override
-            public String map(String value) throws Exception {
-                return value;
-            }
-        });
-    }
-    public static FlinkKafkaConsumer<String> createStringConsumerForTopic(String topic, String kafkaAddress) {
-        Properties props = new Properties();
-        props.setProperty("bootstrap.servers", kafkaAddress);
-        FlinkKafkaConsumer<String> consumer = new FlinkKafkaConsumer<>(
-                topic, new SimpleStringSchema(), props);
-
-        return consumer;
-    }
-    public static DataStream<Vehicle> ConvertStreamFromJsonToBusType(DataStream<String> jsonStream) {
+    public static DataStream<Vehicle> ConvertJsonToVehicle(DataStream<String> jsonStream) {
         return jsonStream.map(kafkaMessage -> {
             try {
                 JsonNode jsonNode = new ObjectMapper().readValue(kafkaMessage, JsonNode.class);
@@ -136,4 +68,79 @@ public class DataStreamJob {
             }
         }).filter(Objects::nonNull).forward();
     }
+    public static DataStream<String> StreamConsumer(String inputTopic, String server, StreamExecutionEnvironment environment) throws Exception {
+        FlinkKafkaConsumer<String> flinkKafkaConsumer = createStringConsumerForTopic(inputTopic, server);
+        DataStream<String> stringInputStream = environment.addSource(flinkKafkaConsumer);
+        return stringInputStream.map(new MapFunction<String, String>() {
+            private static final long serialVersionUID = -999736771747691234L;
+
+            @Override
+            public String map(String value) throws Exception {
+                return value;
+            }
+        });
+    }
+    public static FlinkKafkaConsumer<String> createStringConsumerForTopic(String topic, String kafkaAddress) {
+        Properties props = new Properties();
+        props.setProperty("bootstrap.servers", kafkaAddress);
+        FlinkKafkaConsumer<String> consumer = new FlinkKafkaConsumer<>(
+                topic, new SimpleStringSchema(), props);
+
+        return consumer;
+    }
+    private static SingleOutputStreamOperator processAverageAggregate(DataStream<Vehicle> vehicleStream, Double lat1, Double lat2, Double long1, Double long2) {
+        return vehicleStream
+            //    .filter(new FilterFunction<Vehicle>() {
+                //    @Override
+                //    public boolean filter(Vehicle value) throws Exception {
+                 //       Double currLat = value.getLatitude();
+                  //      Double currLong = value.getLongitude();
+                   //     return currLong < lat1 && currLong > long1 && currLat < lat2 && currLat > long2;
+                  //  }
+               // })
+                .keyBy(Vehicle::getId)
+                .window(SlidingProcessingTimeWindows.of(Time.seconds(10), Time.seconds(10)))
+                .aggregate(new AverageAggregate());
+    }
+    private static SingleOutputStreamOperator processTopNLocations(DataStream<Vehicle> vehicleStream) {
+        return vehicleStream
+                .keyBy(Vehicle::getId)
+                .window(SlidingProcessingTimeWindows.of(Time.seconds(30), Time.seconds(30)))
+                .aggregate(new TopNLocationsAggregate(3));
+    }
+    private static void sinkToDatabase(SingleOutputStreamOperator averageAggregateStream, SingleOutputStreamOperator topNLocationsStream) throws Exception {
+        CassandraService cassandraService = new CassandraService();
+        cassandraService.sinkToDatabase15(averageAggregateStream);
+        cassandraService.sinkToDatabase30(topNLocationsStream);
+    }
+    private static final String KAFKA_TOPIC = "vehicles_topic";
+    private static final String KAFKA_SERVER = "kafka:9092";
+    public static void main(String[] args) throws Exception {
+
+        Double lat1 = Double.parseDouble(args[0]);
+        Double lat2 = Double.parseDouble(args[1]);
+        Double long1 = Double.parseDouble(args[2]);
+        Double long2 = Double.parseDouble(args[3]);
+        validateInput(lat1, lat2, long1, long2);
+
+        // Konfiguracija okoline
+
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        DataStream<String> dataStream = StreamConsumer(KAFKA_TOPIC, KAFKA_SERVER, env);
+        DataStream<Vehicle> vehicleStream = ConvertJsonToVehicle(dataStream);
+
+        // Sliding window operacije
+        SingleOutputStreamOperator averageAggregateStream = processAverageAggregate(vehicleStream,lat1,lat2,long1,long2);
+        averageAggregateStream.print();
+        SingleOutputStreamOperator topNLocationsStream = processTopNLocations(vehicleStream);
+        topNLocationsStream.print();
+
+        // Upis u bazu
+        sinkToDatabase(averageAggregateStream,topNLocationsStream);
+
+        // Execute program, beginning computation.
+        env.execute("Flink Java API Skeleton");
+    }
+
+
 }
